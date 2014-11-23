@@ -1,0 +1,113 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Niall Fallon"
+output: html_document
+---
+
+###Load Required Packages and Data
+
+```{r, message=F, warning=F}
+library(caret);library(randomForest)
+
+train <- read.csv('pml-training.csv', header=T)
+test <- read.csv('pml-testing.csv', header=T)
+```
+Data on exercise performance were obtained from http://groupware.les.inf.puc-rio.br/har (Velloso *et al* 2013).
+
+###Censor Datasets
+
+Variables in the dataset which were deemed to be of little utility for classification were removed. This included variables which contained ```NA``` values or an abundance of blank records, and variables such as the name of the person (each user carried out the same standard lifts) or the time of the trial which would not have any real predictive power.
+
+```{r}
+train <- train[,c(8:11,37:49,60:68,84:86,102,113:124,140,151:160)]
+test <- test[,c(8:11,37:49,60:68,84:86,102,113:124,140,151:160)]
+```
+
+###Exploratory Data Analysis
+Pairs plots were used to look at relationships between predictors (additional code used to improve visualisation included here), in order to assess how feasible it would be to reduce the number of explanatory variables using a method such as Principle Component Analysis. 
+
+```{r}
+# Correlation Coefficient
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
+{
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(0, 1, 0, 1))
+    r <- abs(cor(x, y))
+    txt <- format(c(r, 0.123456789), digits = digits)[1]
+    txt <- paste0(prefix, txt)
+    if(missing(cex.cor)) cex.cor <- 0.8/strwidth(txt)
+    text(0.5, 0.5, txt, cex = cex.cor * r)
+}
+
+# Histograms of Observation Values
+panel.hist <- function(x, ...)
+{
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(usr[1:2], 0, 1.5) )
+  h <- hist(x, plot = FALSE)
+  breaks <- h$breaks; nB <- length(breaks)
+  y <- h$counts; y <- y/max(y)
+  rect(breaks[-nB], 0, breaks[-1], y, col='#CCCCCC', border='#CCCCCC', ...)
+  box()
+}
+```
+Pairs plots were generated for subsets of related predictors (e.g. all of the variables containing the character string 'dumbbell'). An example plot is included here containing a small number of variables for demonstrative purposes.
+
+```{r}
+# Example pairs() plot with first six predictors and classification variable
+pairs(train[,c(1:5,53)], lower.panel = panel.smooth, 
+  upper.panel = panel.cor, diag.panel=panel.hist)
+```
+
+It was decided not to summarise any subsets of predictors to avoid any loss of information contained in the data. As there did not appear to be a strong linear correlation between the classification variable and any of the predictors a Random Forest was chosen for this predictive modelling exercise as opposed to some alternate linear model based approach.
+
+###Model Specification
+
+A random forest model was specified using all predictors which remained after data censoring. The ```caret``` package was used at first, but it ran very slowly, and so the ```randomForest()``` function from the package ```randomForest``` was used directly.
+
+```{r}
+rfMod <- randomForest(classe~., data=train, importance=T)
+```
+
+There is no need for cross-validation to get an unbiased estimate of the test set error when using a random forest model (Breiman 2001), hence the entire training data set was used to fit the model. We can then assess error by looking at the out-of-bag (OOB) error rate in the model object.
+
+```{r}
+rfMod
+```
+
+We can see here that there is < 1%  OOB error rate, which is estimated on the OOB sample for each tree. This would seem satisfactory. 
+
+###Variable Importance
+
+A matrix of variable importance values can be retrieved from the random forest model as follows:
+```{r}
+imp <- importance(rfMod)
+```
+
+If we plot the mean decrease in classification accuracy from the model object (obtained from a permutation test which assesses predictive power with iterative removal of features) against each predictor, we see that the belt pitch, roll & yaw are the three most important variables. They would most obviously indicate hip position (one of the wrongly executed exercises involved throwing the hips to the front), and thus are probably a decent indicator of correct posture during exercise.
+
+```{r, echo=F}
+or1 <- order(imp[,6], decreasing=T)
+imp2 <- as.data.frame(imp[or1,])
+par(mar=c(5, 4, 1, 1) + 0.1)
+dotchart(rev(imp2[,6]), labels=rev(rownames(imp2)),
+         xlab='Mean Decrease in Accuracy', cex.axis=0.5, cex=0.5)
+```
+
+###Predictions on Test Dataset
+Classification predictions were made on the tests data set using the random forest model.
+```{r}
+pred <- predict(rfMod, test)
+```
+
+The following output was obtained.
+```{r}
+# 1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 
+# B  A  B  A  A  E  D  B  A  A  B  C  B  A  E  E  A  B  B  B 
+#Levels: A B C D E
+```
+
+###References
+Breiman, L. (2001) Random Forests. Machine Learning, 45, 5-32        
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. (2013) Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI.
+
